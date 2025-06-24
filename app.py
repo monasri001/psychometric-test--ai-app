@@ -1,41 +1,45 @@
-import streamlit as st
+import gradio as gr
 from llm_agent import start_session, follow_up_prompt, detect_emotion, score_user_response
-from report import generate_pdf
 
-st.set_page_config(page_title="AI Psychometric Test", page_icon="🧠")
-st.title("🧠 AI-Powered Psychometric Assessment")
-st.markdown("This assistant helps conduct a **PHQ-9-like depression test** using a conversational AI agent.")
+# Initialize conversation
+session_started = False
+chat_history = []
 
-# Input: Name
-name = st.text_input("Enter your name")
-start_button = st.button("Start Session")
+# Function to handle chat
+def chat_interface(user_input, history):
+    global session_started
+    if not history:
+        history = []
+    
+    if not session_started:
+        welcome_msg = start_session("Patient")
+        session_started = True
+        history.append(("", welcome_msg))
+        return history, history
 
-if start_button and name:
-    st.session_state['chat'] = [("ai", start_session(name))]
+    # Emotion detection and scoring
+    emotion = detect_emotion(user_input)
+    score = score_user_response(user_input)
+    
+    # Generate next response
+    reply = follow_up_prompt(user_input)
+    ai_reply = f"{reply}\n\n🔍 Emotion: {emotion}\n🧠 Score: {score}"
+    history.append((user_input, ai_reply))
+    return history, history
 
-if 'chat' in st.session_state:
-    for role, message in st.session_state.chat:
-        st.chat_message("Assistant" if role == "ai" else "You").write(message)
+# Build Gradio UI
+def build_interface():
+    with gr.Blocks() as demo:
+        gr.Markdown("## 🧠 AI-Powered Psychometric Chat Assessment")
+        chatbot = gr.Chatbot()
+        user_input = gr.Textbox(label="Your response")
+        state = gr.State([])
 
-    user_input = st.chat_input("Your response")
-    if user_input:
-        st.session_state.chat.append(("user", user_input))
+        user_input.submit(chat_interface, [user_input, state], [chatbot, state])
+        user_input.submit(lambda: "", None, user_input)
 
-        # Emotion detection
-        emotion = detect_emotion(user_input)
-        st.info(f"🔍 Detected Emotion: {emotion}")
+    return demo
 
-        # Score response
-        score_result = score_user_response(user_input)
-        st.warning(f"🧠 Score Analysis:\n\n{score_result}")
-
-        # Generate next message
-        next_msg = follow_up_prompt(user_input)
-        st.session_state.chat.append(("ai", next_msg))
-        st.rerun()
-
-    if st.button("📝 Generate Report"):
-        conversation = [(r, m) for r, m in st.session_state.chat]
-        pdf = generate_pdf(name, conversation)
-        with open(pdf, "rb") as f:
-            st.download_button("Download PDF Report", f, file_name=pdf)
+if __name__ == "__main__":
+    demo = build_interface()
+    demo.launch()
